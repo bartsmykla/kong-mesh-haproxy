@@ -17,3 +17,5 @@ controller:
   config:
     service-upstream: "true"
 ```
+
+default `values.yaml` for helm chart can be found here: https://github.com/haproxy-ingress/charts/blob/release-0.12/haproxy-ingress/values.yamd
