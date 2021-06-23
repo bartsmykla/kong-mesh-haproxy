@@ -1,0 +1,110 @@
+serviceAccount:
+  name: ingress-controller
+controller:
+  podAnnotations:
+    kuma.io/gateway: enabled
+    sidecar.istio.io/inject: "false"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "9101"
+    prometheus.io/scrape: "true"
+    ad.datadoghq.com/rsyslog.check_names: '["haproxy"]'
+    ad.datadoghq.com/rsyslog.init_configs: '[{}]'
+    ad.datadoghq.com/rsyslog.instances: '[{ "url": "https://%%host%%/admin?stats" }]'
+    ad.datadoghq.com/rsyslog.logs: '[{"source": "haproxy", "service": "haproxy-ingress"}]'
+  config:
+    balance-algorithm: "roundrobin"
+    drain-support: "true"
+    dynamic-scaling: "false"
+    forwardfor: ifmissing
+    ssl-redirect: "false"
+    syslog-endpoint: "localhost:514"
+    config-frontend: |
+      maxconn 20000
+      capture request header Host len 32
+      capture request header Cookie len 32
+      capture request header User-Agent len 32
+      http-request redirect scheme https if !{ ssl_fc }
+    timeout-server: 600s
+    timeout-server-fin: 600s
+    service-upstream: "true"
+  replicaCount: 3
+  minReadySeconds: 10
+  podLabels:
+    app: haproxy-ingress
+  podAffinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app
+              operator: In
+              values:
+              - haproxy-ingress
+          topologyKey: failure-domain.beta.kubernetes.io/zone
+        weight: 100
+  healthzPort: 10253
+  livenessProbe:
+    path: /healthz
+    port: 10253
+    failureThreshold: 3
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 10
+  readinessProbe:
+    path: /healthz
+    port: 10253
+    failureThreshold: 3
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 10
+  extraArgs:
+    reload-strategy: reusesocket
+    rate-limit-update: "10"
+    sort-backends: "true"
+  autoscaling:
+    enabled: "true"
+    minReplicas: 3
+    maxReplicas: 50
+    targetCPUUtilizationPercentage: 70
+  extraContainers:
+  - name: prometheus-haproxy-exporter
+    image: "prom/haproxy-exporter:v0.10.0"
+    imagePullPolicy: IfNotPresent
+    args:
+    - --haproxy.scrape-uri=http://127.0.0.1:1936/stats?stats;csv
+    ports:
+    - containerPort: 9101
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128M
+  - name: rsyslog
+    image: levonet/rsyslog
+    ports:
+    - name: udp
+      containerPort: 514
+      protocol: UDP
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 32Mi
+    volumeMounts:
+    - name: rsyslog-config
+      mountPath: /etc/rsyslog.d/atmos.conf
+      subPath: rsyslog.conf
+    env:
+    - name: RSYSLOG_CONF
+      value: /etc/rsyslog-atmos.conf
+  extraVolumes:
+  - name: rsyslog-config
+    configMap:
+      name: rsyslog-config
